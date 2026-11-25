@@ -1,0 +1,17 @@
+{
+  "name": "pixel-base",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pixel Base - an isometric pixel-art virtual office for AI agents (Orca plugin)",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "serve": "node scripts/serve.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}

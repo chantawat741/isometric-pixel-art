@@ -1,0 +1,34 @@
+{
+  "manifestVersion": 2,
+  "id": "pixel-base",
+  "name": "Pixel Base",
+  "version": "0.1.0",
+  "description": "An isometric pixel-art virtual office for your AI agents.",
+  "engines": {
+    "orca": ">=1.4.259"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "pixel-base",
+        "title": "Pixel Base",
+        "icon": "puzzle",
+        "entry": "panel/index.html"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "agent:read"
+    },
+    {
+      "kind": "workspace:write"
+    }
+  ]
+}
