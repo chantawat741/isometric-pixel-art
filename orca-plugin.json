@@ -2,8 +2,24 @@
   "manifestVersion": 2,
   "id": "pixel-base",
   "name": "Pixel Base",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An isometric pixel-art virtual office for your AI agents.",
+  "cover": {
+    "path": "docs/office.png",
+    "alt": "An isometric pixel-art office with five rooms and small characters working at desks"
+  },
+  "screenshots": [
+    {
+      "path": "docs/office.png",
+      "alt": "The Pixel Base office with simulated agents at their desks",
+      "caption": "The office (demo mode, simulated agents)"
+    },
+    {
+      "path": "docs/profile-card.png",
+      "alt": "A selected character with its profile card open",
+      "caption": "Click a character to see its profile"
+    }
+  ],
   "engines": {
     "orca": ">=1.4.259"
   },
