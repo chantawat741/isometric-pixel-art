@@ -167,6 +167,11 @@
         gap: 4px;
         margin-top: 6px;
       }
+      /* the `hidden` attribute must win over the display set above */
+      #card .actions[hidden],
+      #card .msg[hidden] {
+        display: none;
+      }
       #card .act {
         height: 24px;
         padding: 0 8px;

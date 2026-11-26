@@ -2,6 +2,11 @@
   "name": "pixel-base",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chantawat741/isometric-pixel-art.git"
+  },
   "type": "module",
   "description": "Pixel Base - an isometric pixel-art virtual office for AI agents (Orca plugin)",
   "scripts": {
