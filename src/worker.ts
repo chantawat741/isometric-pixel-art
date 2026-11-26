@@ -40,6 +40,17 @@ function text(input: Json | undefined, key: string): string {
 }
 
 export default function activate(orca: WorkerApi): void {
+  // List the workspaces (including bot folders) so the panel can read each one's agents.
+  // `workspace.list` is worker-only. Only what the panel needs is returned: no paths.
+  orca.panels.handle('pixel.listWorkspaces', async () => {
+    const list = (await orca.host.call('workspace.list', {})) as {
+      workspaces: Array<{ id: string; name: string; kind: string; branch: string | null; project?: string | null }>
+    }
+    return {
+      workspaces: list.workspaces.slice(0, 40).map((w) => ({ id: w.id, name: w.name, kind: w.kind, branch: w.branch, project: w.project ?? null }))
+    }
+  })
+
   // Show the terminal an agent runs in (also brings its workspace forward).
   orca.panels.handle('pixel.focusTerminal', async (input) => {
     const terminalId = text(input, 'terminalId')

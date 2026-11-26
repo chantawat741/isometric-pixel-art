@@ -18,6 +18,21 @@ async function rejection(promise: Promise<unknown>): Promise<{ code?: string; me
   throw new Error('expected a rejection')
 }
 
+test('list workspaces returns ids and names only (no paths)', async () => {
+  const host = mockHost({
+    capabilities: CAPS,
+    results: { 'workspace.list': () => ({ workspaces: [row('w1', 'Jackie', null), row('w2', 'ECustom', 'main')], truncated: false }) }
+  })
+  const worker = await mountWorker(main, { host })
+  const out = (await worker.request('pixel.listWorkspaces')) as { workspaces: Array<Record<string, unknown>> }
+  assert.deepEqual(
+    out.workspaces.map((w) => w.name),
+    ['Jackie', 'ECustom']
+  )
+  assert.equal(out.workspaces.some((w) => 'path' in w), false)
+  await worker.deactivate()
+})
+
 test('focus terminal asks Orca to focus exactly that terminal', async () => {
   const host = mockHost({ capabilities: CAPS, results: { 'terminal.focus': () => ({ focused: true }) } })
   const worker = await mountWorker(main, { host })

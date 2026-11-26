@@ -31,6 +31,14 @@ export interface HostLike {
   plugin?: { request(name: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown> }
 }
 
+/** A workspace (worktree, folder or bot home) as the plugin worker lists it. */
+export interface WorkspaceInfo {
+  id: string
+  name: string
+  kind: string
+  branch: string | null
+}
+
 /** The focused workspace as Orca last reported it. */
 export interface WorkspaceContext {
   workspaceId?: string
@@ -42,6 +50,9 @@ export interface AgentView {
   key: string
   /** The terminal Orca says the agent runs in (needed to focus it), if reported. */
   terminalId: string | null
+  /** The workspace the agent belongs to, when known. */
+  workspaceId: string | null
+  workspaceName: string
   name: string
   kind: string
   title: string
@@ -82,6 +93,8 @@ export function visualStatus(raw: OrcaState, since: number, outcome: string | un
 interface Rec {
   key: string
   terminalId: string | null
+  workspaceId: string | null
+  workspaceName: string
   order: number
   kind: string
   title: string
@@ -163,6 +176,19 @@ export class AgentFeed {
     this.timer = setTimeout(() => void this.refresh(), 150)
   }
 
+  /** Workspaces known to Orca (via the worker); null when the worker cannot be reached. */
+  workspaces: WorkspaceInfo[] | null = null
+
+  private async loadWorkspaces(): Promise<WorkspaceInfo[] | null> {
+    if (!this.orca.plugin?.request) return null
+    try {
+      const out = (await this.orca.plugin.request('pixel.listWorkspaces', {}, { timeoutMs: 6000 })) as { workspaces?: WorkspaceInfo[] }
+      return Array.isArray(out?.workspaces) ? out.workspaces : null
+    } catch {
+      return null // no worker (e.g. workspace access not approved): fall back to the focused workspace
+    }
+  }
+
   async refresh(): Promise<void> {
     if (this.busy) {
       this.again = true
@@ -170,9 +196,25 @@ export class AgentFeed {
     }
     this.busy = true
     try {
-      const res = (await this.orca.host.call('agents.list', {})) as { agents: RawAgent[] }
+      this.workspaces = await this.loadWorkspaces()
+      const found: Array<{ raw: RawAgent; ws: WorkspaceInfo | null }> = []
+      let successes = 0
+      let lastError: unknown = null
+      const read = async (ws: WorkspaceInfo | null): Promise<void> => {
+        try {
+          const res = (await this.orca.host.call('agents.list', ws ? { workspaceId: ws.id } : {})) as { agents?: RawAgent[] }
+          successes++
+          for (const raw of res.agents ?? []) found.push({ raw, ws })
+        } catch (error) {
+          lastError = error // one workspace failing must not hide the others
+        }
+      }
+      // Every workspace (bots included), plus the focused one as a safety net; duplicates merge by key.
+      const focused = this.workspaces?.find((w) => w.name === this.context?.displayName) ?? null
+      await Promise.all([...(this.workspaces ?? []).slice(0, 20).map((w) => read(w)), read(null)])
+      if (successes === 0) throw lastError ?? new Error('could not read agents')
       this.error = null
-      this.reconcile(res.agents ?? [])
+      this.reconcile(found, focused)
     } catch (error) {
       this.error = describe(error)
     } finally {
@@ -185,16 +227,34 @@ export class AgentFeed {
     }
   }
 
-  private reconcile(list: RawAgent[]): void {
+  private reconcile(list: Array<{ raw: RawAgent; ws: WorkspaceInfo | null }>, focused: WorkspaceInfo | null): void {
     const seen = new Set<string>()
-    for (const a of list) {
-      const key = a.terminalId ?? a.sessionId ?? `${a.agent ?? 'agent'}:${a.title ?? ''}`
+    // Workspace-specific reads come first so a duplicate from the unscoped (focused) read never wins.
+    const ordered = [...list].sort((a, b) => Number(!!b.ws) - Number(!!a.ws))
+    for (const { raw: a, ws: known } of ordered) {
+      const ws = known ?? focused
+      const key = a.terminalId ?? a.sessionId ?? `${ws?.id ?? ''}:${a.agent ?? 'agent'}:${a.title ?? ''}`
+      if (seen.has(key)) continue
       seen.add(key)
       let rec = this.recs.get(key)
       if (!rec) {
-        rec = { key, terminalId: null, order: this.counter++, kind: '', title: '', task: '', raw: a.state, since: a.stateStartedAt, deskIndex: -1 }
+        rec = {
+          key,
+          terminalId: null,
+          workspaceId: null,
+          workspaceName: '',
+          order: this.counter++,
+          kind: '',
+          title: '',
+          task: '',
+          raw: a.state,
+          since: a.stateStartedAt,
+          deskIndex: -1
+        }
         this.recs.set(key, rec)
       }
+      rec.workspaceId = ws?.id ?? null
+      rec.workspaceName = ws?.name ?? ''
       rec.terminalId = a.terminalId
       rec.kind = a.agent ?? 'agent'
       rec.title = a.title ?? ''
@@ -209,18 +269,34 @@ export class AgentFeed {
     this.assignDesks()
   }
 
-  /** Stable desks: an agent keeps its desk while it exists; the lowest free desk goes to newcomers. */
+  /**
+   * Stable desks: an agent keeps its desk while it exists and the lowest free desk goes to newcomers.
+   * When the office is full, an agent that is busy (working / waiting / blocked) takes the desk of
+   * the agent that has been idle the longest, so the people doing something are always visible.
+   */
   private assignDesks(): void {
     const used = new Set<number>()
     for (const r of this.recs.values()) if (r.deskIndex >= 0) used.add(r.deskIndex)
-    for (const r of [...this.recs.values()].sort((a, b) => a.order - b.order)) {
-      if (r.deskIndex >= 0) continue
+    const busy = (r: Rec): boolean => r.raw !== 'done'
+    const waiting = [...this.recs.values()].filter((r) => r.deskIndex < 0).sort((a, b) => Number(busy(b)) - Number(busy(a)) || a.order - b.order)
+    for (const r of waiting) {
+      let desk = -1
       for (let i = 0; i < this.deskCount; i++) {
         if (!used.has(i)) {
-          r.deskIndex = i
-          used.add(i)
+          desk = i
           break
         }
+      }
+      if (desk < 0 && busy(r)) {
+        const victim = [...this.recs.values()].filter((o) => o.deskIndex >= 0 && !busy(o)).sort((a, b) => a.since - b.since)[0]
+        if (victim) {
+          desk = victim.deskIndex
+          victim.deskIndex = -1
+        }
+      }
+      if (desk >= 0) {
+        r.deskIndex = desk
+        used.add(desk)
       }
     }
   }
@@ -240,13 +316,17 @@ export class AgentFeed {
     const recs = [...this.recs.values()].sort((a, b) => a.order - b.order)
     const seenNames = new Map<string, number>()
     return recs.map((r) => {
-      const base = (r.kind || 'agent').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'AGENT'
+      // Named after the workspace the agent belongs to ("JACKIE"), else after the agent's kind.
+      const label = r.workspaceName || r.kind || 'agent'
+      const base = label.toUpperCase().replace(/[^A-Z0-9]/g, '') || 'AGENT'
       const n = (seenNames.get(base) ?? 0) + 1
       seenNames.set(base, n)
       const name = (n > 1 ? `${base.slice(0, 7)} ${n}` : base).slice(0, 9)
       return {
         key: r.key,
         terminalId: r.terminalId,
+        workspaceId: r.workspaceId,
+        workspaceName: r.workspaceName,
         name,
         kind: r.kind,
         title: r.title,

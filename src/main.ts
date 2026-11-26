@@ -253,7 +253,7 @@ function refreshCard(): void {
     cDesk.textContent = ch.desk.id.toUpperCase()
     cLook.textContent = LOOKS[ch.lookId].name
     // Facts reported by Orca itself (live mode only).
-    cKind.textContent = d ? `Orca: ${d.orcaState} for ${formatAge(ageSec)}` : 'Simulated agent'
+    cKind.textContent = d ? `${d.kind || 'agent'} · Orca: ${d.orcaState} for ${formatAge(ageSec)}` : 'Simulated agent'
     cTask.textContent = d?.task ? `Task: ${d.task}` : d?.title ? d.title : ''
     cTask.hidden = !cTask.textContent
     refreshActions()
@@ -328,11 +328,21 @@ cFocus.addEventListener('click', () => {
   })
 })
 
-cOpen.addEventListener('click', () => {
+/** The workspace to open for the selected agent: its own, else the focused one. */
+function targetWorkspace(): { workspaceId: string; name: string; branch: string } | null {
+  const ch = world.selectedId ? sim.chars.get(world.selectedId) : undefined
+  const d = ch?.info.details
+  if (d?.workspaceId) return { workspaceId: d.workspaceId, name: d.workspaceName, branch: '' }
   const ctx = feed?.context
-  if (!ctx) return
+  if (ctx && (ctx.workspaceId || ctx.displayName)) return { workspaceId: ctx.workspaceId ?? '', name: ctx.displayName, branch: ctx.branch }
+  return null
+}
+
+cOpen.addEventListener('click', () => {
+  const target = targetWorkspace()
+  if (!target) return
   void runAction(cOpen, async () => {
-    await callWorker('pixel.openWorkspace', { workspaceId: ctx.workspaceId ?? '', name: ctx.displayName, branch: ctx.branch })
+    await callWorker('pixel.openWorkspace', target)
     return 'Showing the workspace in Orca.'
   })
 })
@@ -346,7 +356,7 @@ function refreshActions(): void {
   const hasTerminal = !!ch?.info.details?.terminalId
   cFocus.disabled = !hasTerminal
   cFocus.title = hasTerminal ? 'Show this agent’s terminal in Orca' : 'Orca did not report a terminal for this agent'
-  const canOpen = !!feed?.context && (!!feed.context.workspaceId || !!feed.context.displayName)
+  const canOpen = targetWorkspace() !== null
   cOpen.disabled = !canOpen
   cOpen.title = canOpen ? 'Show this agent’s workspace in Orca' : 'Orca has not reported the workspace yet'
 }
@@ -388,7 +398,16 @@ function syncLive(): void {
       name: v.name,
       status: v.status,
       deskId: DESKS[v.deskIndex].id,
-      details: { terminalId: v.terminalId, kind: v.kind, title: v.title, task: v.task, orcaState: v.raw, since: v.since }
+      details: {
+        terminalId: v.terminalId,
+        workspaceId: v.workspaceId,
+        workspaceName: v.workspaceName,
+        kind: v.kind,
+        title: v.title,
+        task: v.task,
+        orcaState: v.raw,
+        since: v.since
+      }
     })
   }
   for (const id of [...sim.chars.keys()]) {
@@ -410,7 +429,8 @@ function updateStatus(): void {
   } else if (!feed || !feed.live) {
     text = feed?.error ?? 'Connecting to Orca…'
   } else {
-    const ws = feed.workspaceLabel ? ` · ${feed.workspaceLabel}` : ''
+    const wsCount = feed.workspaces?.length
+    const ws = wsCount ? ` · ${wsCount} workspace${wsCount === 1 ? '' : 's'}` : feed.workspaceLabel ? ` · ${feed.workspaceLabel}` : ''
     const n = feed.count
     const extra = feed.overflow ? ` (${feed.overflow} without a desk)` : ''
     if (feed.error) {

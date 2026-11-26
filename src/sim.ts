@@ -13,6 +13,9 @@ export type Mode = 'seated' | 'standing' | 'walking' | 'sitting' | 'rising'
 export interface AgentDetails {
   /** Terminal the agent runs in, when Orca reports one. */
   terminalId: string | null
+  /** Workspace the agent belongs to (id as the workspace list gives it), when known. */
+  workspaceId: string | null
+  workspaceName: string
   kind: string
   title: string
   task: string
