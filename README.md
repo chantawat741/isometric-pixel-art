@@ -11,7 +11,7 @@
 - **An isometric office** with five rooms (Dev Room, Meeting, Server, Lounge, Pantry), zoom, pan and fit-to-view.
 - **Your real agents.** Every agent Orca reports, from every workspace (bot homes such as a bot's folder included), is a character named after its workspace.
 - **Status you can read at a glance** (see the table below).
-- **A profile card** when you click a character: Orca's own state and how long it has lasted, the task, a choice of 8 looks, and two buttons: **Focus terminal** and **Open workspace**.
+- **A profile card** when you click a character: Orca's own state and how long it has lasted, the task, a choice of 14 looks (suit, hoodie, lab coat, sweater, safety vest; the look is only a costume, it says nothing about the agent), and two buttons: **Focus terminal** and **Open workspace**.
 - **No AI calls and no data collection.** Pixel Base only mirrors what Orca already knows.
 
 ![Profile card](docs/profile-card.png)

@@ -1,5 +1,6 @@
 // Procedural pixel-art characters in a chibi office-worker style (big head, suit / blouse):
-// 8 looks (4 men, 4 women), front/back views, six facial expressions and icon speech bubbles.
+// 14 looks (6 men, 8 women; suit, hoodie, lab coat, sweater or safety vest), front/back views,
+// six facial expressions and icon speech bubbles.
 // Everything is a handful of integer fillRect calls (no image assets), anchored at the feet.
 
 import { shade, drawPixelText, textWidth } from './gfx'
@@ -8,8 +9,10 @@ export type Pose = 'stand' | 'walk' | 'sit'
 /** What the character feels like: picks the face, arms and bubble icon. */
 export type Mood = 'none' | 'think' | 'wait' | 'blocked' | 'done' | 'celebrate' | 'fail'
 export type HairStyle = 'short' | 'side' | 'spiky' | 'ponytail' | 'bob' | 'bun' | 'long'
-export type Accessory = 'none' | 'glasses' | 'headset'
+export type Accessory = 'none' | 'glasses' | 'headset' | 'beanie' | 'beret' | 'cap'
 export type Body = 'm' | 'f'
+/** What they wear on top: the default suit / blouse, or a work outfit for another kind of job. */
+export type Outfit = 'suit' | 'hoodie' | 'labcoat' | 'sweater' | 'vest'
 
 export interface Look {
   name: string
@@ -17,13 +20,17 @@ export interface Look {
   skin: string
   hair: string
   hairStyle: HairStyle
-  /** Suit jacket / blouse colour. */
+  /** Suit jacket / blouse / hoodie / sweater colour (the shirt under a vest). */
   jacket: string
-  /** Tie (men) or neck bow (women). */
+  /** Tie (men) or neck bow (women); the shirt under a lab coat; the vest colour. */
   accent: string
   pants: string
   shoes: string
   accessory: Accessory
+  /** Defaults to 'suit'. */
+  outfit?: Outfit
+  /** Colour of a beanie, beret or cap. */
+  hat?: string
 }
 
 export const LOOKS: Look[] = [
@@ -34,7 +41,15 @@ export const LOOKS: Look[] = [
   { name: 'Leo', body: 'm', skin: '#a96f4b', hair: '#2a1a12', hairStyle: 'side', jacket: '#3f7d5c', accent: '#ffd23f', pants: '#2f3b52', shoes: '#f4f6fa', accessory: 'none' },
   { name: 'Sora', body: 'f', skin: '#f1c9a5', hair: '#8a3fc0', hairStyle: 'bun', jacket: '#7a5fb8', accent: '#f4f6fa', pants: '#3a3f6a', shoes: '#2b2f3a', accessory: 'glasses' },
   { name: 'Dan', body: 'm', skin: '#c98e62', hair: '#d9a441', hairStyle: 'spiky', jacket: '#d98a3d', accent: '#2b2f3a', pants: '#3a3f4c', shoes: '#1d2230', accessory: 'headset' },
-  { name: 'Hana', body: 'f', skin: '#7a4f35', hair: '#101014', hairStyle: 'long', jacket: '#4cc3c9', accent: '#f4f6fa', pants: '#2f4a5a', shoes: '#f4f6fa', accessory: 'none' }
+  { name: 'Hana', body: 'f', skin: '#7a4f35', hair: '#101014', hairStyle: 'long', jacket: '#4cc3c9', accent: '#f4f6fa', pants: '#2f4a5a', shoes: '#f4f6fa', accessory: 'none' },
+  // work outfits for other kinds of jobs: developer, data scientist, ops, designer
+  { name: 'Kai', body: 'm', skin: '#e9bd96', hair: '#3b2a20', hairStyle: 'short', jacket: '#3d4a63', accent: '#f4f6fa', pants: '#23283a', shoes: '#f4f6fa', accessory: 'beanie', outfit: 'hoodie', hat: '#e0674a' },
+  { name: 'Nova', body: 'f', skin: '#f2cdb0', hair: '#1c2a4a', hairStyle: 'long', jacket: '#f4f6fa', accent: '#4cb6a8', pants: '#3a4a64', shoes: '#2b2f3a', accessory: 'glasses', outfit: 'labcoat' },
+  { name: 'Max', body: 'm', skin: '#b87d57', hair: '#1a1410', hairStyle: 'short', jacket: '#5a6272', accent: '#f08a24', pants: '#2f3340', shoes: '#4a3a2a', accessory: 'cap', outfit: 'vest', hat: '#2f6fb0' },
+  { name: 'Ivy', body: 'f', skin: '#d9a47a', hair: '#5a2a1f', hairStyle: 'bob', jacket: '#e9d5b8', accent: '#d9486a', pants: '#2b2f3a', shoes: '#8a4a3a', accessory: 'beret', outfit: 'sweater', hat: '#d9486a' },
+  // support desk and analyst
+  { name: 'Pim', body: 'f', skin: '#a9714d', hair: '#2b1d3a', hairStyle: 'ponytail', jacket: '#58b89a', accent: '#f4f6fa', pants: '#3a4a64', shoes: '#f4f6fa', accessory: 'headset', outfit: 'hoodie' },
+  { name: 'Dara', body: 'f', skin: '#fbe0cc', hair: '#c9772e', hairStyle: 'bun', jacket: '#d9a43a', accent: '#6a4a9a', pants: '#3a3f4c', shoes: '#6b4a2f', accessory: 'glasses', outfit: 'sweater' }
 ]
 
 export interface SpriteState {
@@ -110,7 +125,10 @@ export function drawCharacter(ctx: CanvasRenderingContext2D, x: number, y: numbe
   R(look.jacket, -4, base, 8, 8)
   R(shade(look.jacket, 0.78), -4, base, 8, 1)
   R(shade(look.jacket, 1.15), -4, base + 7, 8, 1)
-  if (front) {
+  const outfit = look.outfit ?? 'suit'
+  if (outfit !== 'suit') {
+    drawOutfit(R, look, outfit, front, base)
+  } else if (front) {
     if (woman) {
       R('#fbf6ee', -2, base + 6, 4, 2) // collar
       R(look.accent, -1, base + 5, 2, 2) // bow
@@ -185,6 +203,7 @@ export function drawCharacter(ctx: CanvasRenderingContext2D, x: number, y: numbe
     }
     R(f, -1 + hx, headZ + 4, 2, 1)
   }
+  drawHat(R, look, front, hx, headZ)
   if (look.accessory === 'headset') {
     const hs = '#2b2f3a'
     R(hs, -6 + hx, headZ + 3, 1, 4)
@@ -285,6 +304,79 @@ function drawFace(R: Rect, look: Look, mood: Mood, hx: number, z: number, blink:
       R('#b5654a', -1 + hx, z + 1, 2, 1)
       if (mood === 'think') R(look.skin, 1 + hx, z, 3, 2) // hand at the chin
     }
+  }
+}
+
+/** The torso details of a non-suit outfit (the plain jacket-coloured torso is drawn by the caller). */
+function drawOutfit(R: Rect, look: Look, outfit: Outfit, front: boolean, base: number): void {
+  const dark = shade(look.jacket, 0.85)
+  switch (outfit) {
+    case 'hoodie':
+      R(dark, -4, base + 7, 8, 1) // hood bunched at the neck
+      if (front) {
+        R(dark, -2, base + 1, 4, 2) // front pocket
+        R('#f4f6fa', -2, base + 3, 1, 4) // drawstrings
+        R('#f4f6fa', 1, base + 3, 1, 4)
+      } else {
+        R(dark, -3, base + 3, 6, 4) // hood hanging down the back
+      }
+      break
+    case 'labcoat':
+      if (front) {
+        R(look.accent, -1, base + 4, 2, 4) // shirt under the coat
+        R(shade(look.jacket, 0.8), 0, base, 1, 4) // centre seam
+        R(shade(look.jacket, 0.85), -3, base + 2, 2, 2) // pocket
+        R('#5a6a88', -3, base + 3, 1, 1) // pen
+      } else {
+        R(shade(look.jacket, 0.88), 0, base, 1, 8)
+      }
+      break
+    case 'sweater':
+      R(shade(look.jacket, 1.1), -3, base + 7, 6, 1) // turtleneck
+      R(look.accent, -4, base + 4, 8, 1) // stripe
+      R(look.accent, -4, base + 2, 8, 1)
+      break
+    case 'vest':
+      if (front) {
+        R(look.accent, -4, base, 3, 7) // vest panels over the shirt
+        R(look.accent, 1, base, 3, 7)
+        R('#f4f6fa', -4, base + 2, 3, 1) // reflective stripes
+        R('#f4f6fa', 1, base + 2, 3, 1)
+        R('#fbf6ee', -1, base + 6, 2, 1) // collar
+      } else {
+        R(look.accent, -4, base, 8, 7)
+        R('#f4f6fa', -4, base + 2, 8, 1)
+      }
+      break
+  }
+}
+
+/** Beanie, beret or cap, drawn over the hair (looks that wear one use short hair). */
+function drawHat(R: Rect, look: Look, front: boolean, hx: number, z: number): void {
+  const c = look.hat ?? '#c0392b'
+  switch (look.accessory) {
+    case 'beanie':
+      R(c, -5 + hx, z + 7, 10, 4)
+      R(shade(c, 0.8), -5 + hx, z + 7, 10, 1) // folded cuff
+      R('#f4f6fa', -1 + hx, z + 11, 2, 2) // pom-pom
+      break
+    case 'beret':
+      R(c, -5 + hx, z + 7, 10, 2)
+      R(c, -4 + hx, z + 9, 8, 1)
+      R(c, -3 + hx, z + 10, 5, 1)
+      R(c, 0 + hx, z + 11, 1, 1) // stalk
+      R(c, -6 + hx, z + 7, 1, 1)
+      break
+    case 'cap':
+      if (front) {
+        R(c, -5 + hx, z + 8, 10, 2)
+        R(c, -4 + hx, z + 10, 8, 1)
+        R(shade(c, 0.7), -6 + hx, z + 7, 12, 1) // brim
+      } else {
+        R(c, -5 + hx, z + 7, 10, 3)
+        R(c, -4 + hx, z + 10, 8, 1)
+      }
+      break
   }
 }
 
