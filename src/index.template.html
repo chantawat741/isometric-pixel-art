@@ -408,6 +408,114 @@
         color: var(--pb-accent);
         letter-spacing: 0.06em;
       }
+      /* --- messages above heads: what an agent's last run did --- */
+      #notes {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      .note {
+        --tone: #9aa3b8;
+        --bg: rgba(13, 16, 24, 0.94);
+        position: absolute;
+        transform: translate(-50%, -100%);
+        padding: 5px 10px;
+        color: var(--pb-fg);
+        background: var(--bg);
+        border: 1px solid var(--tone);
+        border-radius: 8px;
+        font: 12px/1.3 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        white-space: nowrap;
+        animation: note-in 0.18s ease-out;
+      }
+      .note.pass {
+        --tone: #6df08a;
+      }
+      .note.fail {
+        --tone: #ff6b6b;
+      }
+      .note.quiet {
+        --tone: rgba(255, 255, 255, 0.22);
+        --bg: rgba(13, 16, 24, 0.82);
+        color: #aab2c5;
+      }
+      .note.quiet b {
+        font-weight: 400;
+      }
+      .note .nt.pass {
+        color: #6df08a;
+      }
+      .note .nt.fail {
+        color: #ff6b6b;
+      }
+      .note .tail {
+        position: absolute;
+        left: calc(50% + var(--tx, 0px));
+        bottom: -5px;
+        width: 8px;
+        height: 8px;
+        background: var(--bg);
+        border-right: 1px solid var(--tone);
+        border-bottom: 1px solid var(--tone);
+        transform: translateX(-50%) rotate(45deg);
+      }
+      @keyframes note-in {
+        from {
+          opacity: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .note {
+          animation: none;
+        }
+      }
+      .plan {
+        margin: 6px 2px 0;
+        padding: 6px 8px 8px;
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 6px;
+      }
+      .plan .ph {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        letter-spacing: 0.06em;
+      }
+      .plan .ph .kv {
+        margin-left: auto;
+        color: var(--pb-dim);
+        font-size: 10px;
+        letter-spacing: 0;
+      }
+      .lim {
+        margin-top: 8px;
+      }
+      .lim .lt {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        font-size: 11px;
+      }
+      .lim .rs {
+        color: var(--pb-dim);
+        font-size: 10px;
+      }
+      .lim .lp {
+        margin-left: auto;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .bar i.good {
+        background: #3ed17a;
+      }
+      .bar i.warn {
+        background: var(--pb-accent);
+      }
+      .bar i.hot {
+        background: #ff6b6b;
+      }
       .act {
         display: flex;
         gap: 8px;
@@ -583,6 +691,7 @@
   <body>
     <div id="stage">
       <canvas id="view" aria-label="Isometric pixel-art office"></canvas>
+      <div id="notes" role="status" aria-live="polite"></div>
       <div id="title" class="chip"><b>PIXEL BASE</b> <small>virtual office</small></div>
       <div id="status" class="chip"><i id="statusDot"></i><span id="statusText">Office</span></div>
       <div id="card" class="chip" hidden>

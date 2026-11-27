@@ -7,6 +7,8 @@ import { STATUS_COLOR } from './character'
 import type { VisualStatus } from './character'
 import { pushActivity } from './feed'
 import type { ActivityItem } from './feed'
+import { demoRun } from './notes'
+import type { RunInfo } from './notes'
 import type { Sim } from './sim'
 
 const NAMES = ['ALEX', 'BEA', 'CODY', 'DANA', 'ECHO', 'FINN']
@@ -46,12 +48,16 @@ export class DemoDirector {
   private readonly rand = rng(42)
   /** Simulated activity, newest first (cleared with the simulation). */
   readonly activity: ActivityItem[] = []
+  /** Simulated finished runs for the message above a head (cleared with the simulation). */
+  readonly runs = new Map<string, RunInfo>()
 
   constructor(private readonly sim: Sim) {}
 
-  private note(name: string, status: VisualStatus): void {
+  private note(id: string, name: string, status: VisualStatus): void {
     const text = DEMO_TEXT[status]
     if (text) pushActivity(this.activity, { t: Date.now(), label: name, text, color: STATUS_COLOR[status] })
+    if (status === 'completed') this.runs.set(id, demoRun(id, Date.now()))
+    else if (status === 'working' || status === 'thinking') this.runs.delete(id)
   }
 
   get running(): boolean {
@@ -70,7 +76,7 @@ export class DemoDirector {
       const id = `demo-${i + 1}`
       this.sim.upsert({ id, name: NAMES[i], status: CYCLE[step][0], deskId: DESKS[i].id })
       this.runners.push({ id, step, left: this.duration(step) * (0.4 + this.rand() * 0.6) })
-      this.note(NAMES[i], CYCLE[step][0])
+      this.note(id, NAMES[i], CYCLE[step][0])
     }
   }
 
@@ -78,6 +84,7 @@ export class DemoDirector {
     this.sim.clear()
     this.runners = []
     this.activity.length = 0
+    this.runs.clear()
   }
 
   update(dt: number): void {
@@ -87,7 +94,7 @@ export class DemoDirector {
       r.step = (r.step + 1) % CYCLE.length
       r.left = this.duration(r.step)
       this.sim.setStatus(r.id, CYCLE[r.step][0])
-      this.note(this.sim.chars.get(r.id)?.info.name ?? r.id, CYCLE[r.step][0])
+      this.note(r.id, this.sim.chars.get(r.id)?.info.name ?? r.id, CYCLE[r.step][0])
     }
   }
 

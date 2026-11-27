@@ -7,8 +7,10 @@ import { Docks } from './docks'
 import type { AgentRow, WorkspaceRow } from './docks'
 import { AgentFeed } from './feed'
 import type { HostLike } from './feed'
-import { DEMO_USAGE, loadUsage } from './usage'
-import type { UsageData, UsageState } from './usage'
+import { loadRuns, noteFor } from './notes'
+import type { RunInfo } from './notes'
+import { DEMO_USAGE, demoLimits, loadLimits, loadUsage } from './usage'
+import type { LimitsData, LimitsState, UsageData, UsageState } from './usage'
 import { NavGrid } from './nav'
 import { DESKS, HANGOUTS, roomAt } from './rooms'
 import { buildOffice } from './scene'
@@ -69,6 +71,7 @@ function draw(): void {
   c.imageSmoothingQuality = 'high'
   c.drawImage(world.canvas, view.originX(), view.originY(), office.width * view.zoom, office.height * view.zoom)
   zoomLabel.textContent = `${Math.round(view.zoom * 100)}%`
+  placeNotes()
 }
 
 // --- animation loop (runs only while there are characters and the panel is visible) -----------
@@ -101,6 +104,7 @@ function loop(now: number): void {
     world.compose()
     refreshCard()
     refreshDocks(forced)
+    refreshNotes()
     draw()
   }
   if (active) rafId = requestAnimationFrame(loop)
@@ -423,6 +427,9 @@ let clockOffset = 0
 
 let usage: UsageData | null = null
 let usageState: UsageState = 'loading'
+let limits: LimitsData | null = null
+let limitsState: LimitsState = 'loading'
+let limitsReason = ''
 let usageBusy = false
 let usageTimer: ReturnType<typeof setInterval> | undefined
 
@@ -459,33 +466,57 @@ async function openWorkspaceRow(w: WorkspaceRow): Promise<void> {
   }
 }
 
-/** Tokens used, read through the plugin worker (demo mode shows labelled, simulated numbers). */
+/** Plan limits and token usage, read through the plugin worker (demo mode shows labelled, simulated numbers). */
 async function refreshUsage(): Promise<void> {
   if (demoOn) {
     usage = DEMO_USAGE
     usageState = 'demo'
+    limits = demoLimits(Date.now() + clockOffset)
+    limitsState = 'demo'
     return refreshDocks(true)
   }
   if (!host) {
     usage = null
     usageState = 'unavailable'
+    limits = null
+    limitsState = 'unavailable'
+    limitsReason = 'cli_not_found'
     return refreshDocks(true)
   }
   if (usageBusy) return
   usageBusy = true
-  try {
-    usage = await loadUsage((name, input) => callWorker(name, input))
+  const request = (name: string, input?: unknown): Promise<unknown> => callWorker(name, input)
+  const [tokens, plan] = await Promise.allSettled([loadUsage(request), loadLimits(request)])
+  if (tokens.status === 'fulfilled') {
+    usage = tokens.value
     usageState = 'ok'
-  } catch (error) {
-    const code = (error as { code?: string }).code
+  } else {
+    const code = (tokens.reason as { code?: string }).code
     if (code === 'capability_denied' || code === 'consent_required') usageState = 'denied'
     else if (code === 'unknown_method' || code === 'not_permitted') usageState = 'unavailable'
     else if (!usage) usageState = 'error' // a failed refresh keeps the numbers already shown
     if (usageState !== 'ok') usage = null
-  } finally {
-    usageBusy = false
-    refreshDocks(true)
   }
+  if (plan.status === 'fulfilled') {
+    limitsReason = ''
+    if (plan.value.state === 'ok') {
+      limits = plan.value.data
+      limitsState = 'ok'
+    } else {
+      limits = null
+      limitsState = 'unavailable'
+      limitsReason = plan.value.reason
+    }
+  } else {
+    const code = (plan.reason as { code?: string }).code
+    limits = limitsState === 'ok' ? limits : null // a failed refresh keeps the numbers already shown
+    if (limitsState !== 'ok') {
+      limitsState = code === 'unknown_method' || code === 'not_permitted' ? 'unavailable' : 'error'
+      limitsReason = limitsState === 'unavailable' ? 'cli_failed' : ''
+    }
+  }
+  usageBusy = false
+  refreshDocks(true)
 }
 
 let lastDocks = 0
@@ -523,8 +554,113 @@ function refreshDocks(force = false): void {
     ? (feed?.workspaces ?? []).map((w) => ({ id: w.id, name: w.name, branch: w.branch, agents: views.filter((v) => v.workspaceId === w.id).length }))
     : null
   docks.renderAgents(rows, world.selectedId, workspaces, live)
-  docks.renderUsage(usage, usageState)
+  docks.renderUsage({ data: usage, state: usageState }, { data: limits, state: limitsState, reason: limitsReason }, Date.now() + clockOffset)
   docks.renderActivity(demoOn ? demo.activity : (feed?.activity ?? []), !demoOn)
+}
+
+// --- messages above heads: what an agent's last run did -----------------------------------------
+
+const notesLayer = el<HTMLDivElement>('notes')
+let runs = new Map<string, RunInfo>()
+let runsBusy = false
+let lastRuns = 0
+let runsTimer: ReturnType<typeof setInterval> | undefined
+const noteEls = new Map<string, { el: HTMLElement; key: string }>()
+let notes: Array<{ id: string; ax: number; ay: number }> = []
+
+/** Ask the worker what each agent's latest run did (live mode only). */
+async function refreshRuns(): Promise<void> {
+  if (demoOn || !host || runsBusy) return
+  const t = performance.now()
+  if (t - lastRuns < 800) return
+  lastRuns = t
+  runsBusy = true
+  try {
+    runs = await loadRuns((name, input) => callWorker(name, input))
+    kick()
+  } catch {
+    // no worker (an older Orca, or not running yet): there are simply no messages
+  } finally {
+    runsBusy = false
+  }
+}
+
+/** Create, update and drop the message cards to match the agents' runs; placeNotes() positions them. */
+function refreshNotes(): void {
+  const now = Date.now() + clockOffset
+  const source = demoOn ? demo.runs : runs
+  const next: typeof notes = []
+  for (const ch of sim.chars.values()) {
+    const id = ch.info.id
+    const run = source.get(id)
+    const working = ch.info.status === 'working' || ch.info.status === 'thinking' // already on the next run
+    const note = run && !working ? noteFor(run, now) : null
+    if (!note) continue
+    const a = world.noteAnchor(ch)
+    next.push({ id, ax: a.x, ay: a.y })
+    const key = `${note.tone}|${note.lead}|${note.body}|${note.tests}`
+    let rec = noteEls.get(id)
+    if (!rec) {
+      const el = document.createElement('div')
+      notesLayer.appendChild(el)
+      rec = { el, key: '' }
+      noteEls.set(id, rec)
+    }
+    if (rec.key !== key) {
+      rec.key = key
+      rec.el.className = `note ${note.tone}`
+      rec.el.replaceChildren()
+      const lead = document.createElement('b')
+      lead.textContent = note.lead
+      rec.el.append(lead)
+      if (note.body) rec.el.append(document.createTextNode(` ${note.body}`))
+      if (note.tests) {
+        const tests = document.createElement('span')
+        tests.className = `nt ${note.testsTone}`
+        tests.textContent = ` ${note.tests}`
+        rec.el.append(tests)
+      }
+      const tail = document.createElement('i')
+      tail.className = 'tail'
+      rec.el.append(tail)
+    }
+  }
+  const live = new Set(next.map((n) => n.id))
+  for (const [id, rec] of noteEls) {
+    if (live.has(id)) continue
+    rec.el.remove()
+    noteEls.delete(id)
+  }
+  notes = next
+}
+
+/**
+ * Put each card above its character's head for the current camera (cheap: a few elements). When two
+ * cards would cover each other (several agents finishing together), the one further back moves up.
+ */
+function placeNotes(): void {
+  const placed: Array<{ l: number; r: number; t: number; b: number }> = []
+  const order = [...notes].sort((a, b) => b.ay - a.ay) // front-most character first
+  for (const n of order) {
+    const rec = noteEls.get(n.id)
+    if (!rec) continue
+    const w = rec.el.offsetWidth
+    const h = rec.el.offsetHeight
+    const sx = view.originX() + n.ax * view.zoom
+    const sy = view.originY() + n.ay * view.zoom - 6
+    const half = w / 2 + 6
+    const x = Math.min(Math.max(sx, half), Math.max(half, view.vw - half)) // keep it inside the panel
+    let bottom = Math.max(sy, h + 4)
+    for (let pass = 0; pass < placed.length; pass++) {
+      const hit = placed.find((p) => x - w / 2 < p.r && x + w / 2 > p.l && bottom - h < p.b && bottom > p.t)
+      if (!hit) break
+      bottom = Math.max(h + 4, hit.t - 6) // just above the card it would cover
+    }
+    placed.push({ l: x - w / 2, r: x + w / 2, t: bottom - h, b: bottom })
+    rec.el.style.left = `${Math.round(x)}px`
+    rec.el.style.top = `${Math.round(bottom)}px`
+    rec.el.style.setProperty('--tx', `${Math.round(Math.max(-w / 2 + 12, Math.min(w / 2 - 12, sx - x)))}px`)
+  }
 }
 
 /** Mirror the feed into the simulation: add/update agents that have a desk, drop the rest. */
@@ -609,6 +745,7 @@ async function startLive(h: HostLike): Promise<void> {
   f.onChange = () => {
     if (demoOn) return updateStatus()
     syncLive()
+    void refreshRuns() // a state change usually means a run just started or ended
     kick()
   }
   await f.start()
@@ -618,6 +755,11 @@ async function startLive(h: HostLike): Promise<void> {
   usageTimer = setInterval(() => {
     if (!document.hidden && !demoOn) void refreshUsage()
   }, 60000)
+  void refreshRuns()
+  clearInterval(runsTimer)
+  runsTimer = setInterval(() => {
+    if (!document.hidden && !demoOn) void refreshRuns()
+  }, 3000)
 }
 
 function setDemo(on: boolean): void {
@@ -630,6 +772,10 @@ function setDemo(on: boolean): void {
   if (!on) {
     usage = null
     usageState = 'loading'
+    limits = null
+    limitsState = 'loading'
+  } else {
+    runs = new Map()
   }
   void refreshUsage()
   demoBtn.setAttribute('aria-pressed', String(on))
@@ -667,6 +813,7 @@ if (location.search.includes('debug')) {
       }
       world.compose()
       refreshCard()
+      refreshNotes()
       draw()
     },
     /** Advance simulation time without rendering (fast, for soak tests). */
@@ -680,7 +827,10 @@ if (location.search.includes('debug')) {
     startLive,
     feed: () => feed,
     docks,
+    demo,
     refreshUsage,
+    refreshRuns,
+    runs: () => runs,
     select
   }
 }

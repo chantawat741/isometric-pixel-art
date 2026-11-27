@@ -4,8 +4,8 @@
 import { drawCharacter, LOOKS, STATUS_COLOR } from './character'
 import type { VisualStatus } from './character'
 import type { ActivityItem } from './feed'
-import { formatTokens, kindLabel } from './usage'
-import type { UsageData, UsageState } from './usage'
+import { formatReset, formatTokens, kindLabel, providerName, windowLabel } from './usage'
+import type { LimitsData, LimitsState, UsageData, UsageState } from './usage'
 
 export interface AgentRow {
   id: string
@@ -67,6 +67,14 @@ function html(parent: Element, tag: string, className?: string, text?: string): 
 function clock(t: number): string {
   const d = new Date(t)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** "updated just now", "updated 5m ago" (minute resolution, so the card does not redraw every second). */
+function ago(t: number, now: number): string {
+  const mins = Math.floor((now - t) / 60000)
+  if (mins < 1) return 'updated just now'
+  if (mins < 60) return `updated ${mins}m ago`
+  return `updated ${Math.floor(mins / 60)}h ago`
 }
 
 export class Docks {
@@ -161,15 +169,70 @@ export class Docks {
 
   // --- USAGE ---------------------------------------------------------------------------------
 
-  renderUsage(data: UsageData | null, state: UsageState): void {
+  renderUsage(
+    tokens: { data: UsageData | null; state: UsageState },
+    limits: { data: LimitsData | null; state: LimitsState; reason: string },
+    now: number
+  ): void {
+    const { data, state } = tokens
     const ok = (state === 'ok' || state === 'demo') && data
-    this.count.usage.textContent = ok ? `${formatTokens(data.today)} today` : state === 'loading' ? '…' : '—'
-    const key = JSON.stringify([state, data])
+    // Header chip: the plan limits when Orca gave them (like Orca's own "5h 16% wk 18%"), else tokens.
+    const first = limits.data?.providers[0]
+    const planChip = first ? [first.session && `5h ${Math.round(first.session.usedPercent)}%`, first.weekly && `wk ${Math.round(first.weekly.usedPercent)}%`].filter(Boolean).join(' · ') : ''
+    this.count.usage.textContent = planChip || (ok ? `${formatTokens(data.today)} tokens today` : state === 'loading' ? '…' : '—')
+    this.count.usage.title = planChip ? 'Share of your plan limit used (5-hour and weekly windows)' : 'Tokens counted on this computer, not your plan limit'
+
+    // What the plan-limit cards say right now (resets count down, so they are part of the cache key).
+    const cards = (limits.data?.providers ?? []).map((p) => ({
+      name: providerName(p.provider),
+      plan: p.planType ? p.planType.charAt(0).toUpperCase() + p.planType.slice(1) : '',
+      rows: ([p.session, p.weekly] as const).flatMap((w, i) =>
+        w ? [{ label: windowLabel(w, i === 0 ? 'Session' : 'Weekly'), pct: Math.round(w.usedPercent), reset: formatReset(w.resetsAt, now) }] : []
+      ),
+      updated: p.updatedAt ? ago(p.updatedAt, now) : ''
+    }))
+    const key = JSON.stringify([state, data, limits.state, limits.reason, cards])
     if (key === this.keys.usage) return
     this.keys.usage = key
 
     const body = document.getElementById('usageBody') as HTMLElement
     body.replaceChildren()
+    if (state === 'demo' || limits.state === 'demo') html(body, 'p', 'tag', 'DEMO · simulated numbers')
+
+    // --- plan limits: the share of the plan used and when each window resets ---
+    html(body, 'div', 'sub', 'PLAN LIMITS')
+    if (limits.state === 'ok' || limits.state === 'demo') {
+      if (cards.length === 0) html(body, 'p', 'note', 'Orca has no plan limits to show yet. Sign in to Claude or Codex in Orca.')
+      for (const c of cards) {
+        const card = html(body, 'div', 'plan')
+        const head = html(card, 'div', 'ph')
+        html(head, 'b', 'kn', c.name)
+        if (c.plan) html(head, 'span', 'badge', c.plan)
+        if (c.updated) html(head, 'span', 'kv', c.updated)
+        for (const r of c.rows) {
+          const row = html(card, 'div', 'lim')
+          const line = html(row, 'div', 'lt')
+          html(line, 'b', undefined, r.label)
+          if (r.reset) html(line, 'span', 'rs', r.reset)
+          html(line, 'span', 'lp', `${r.pct}% used`)
+          const bar = html(row, 'div', 'bar')
+          const fill = html(bar, 'i', r.pct >= 90 ? 'hot' : r.pct >= 70 ? 'warn' : 'good')
+          fill.style.width = `${Math.max(2, r.pct)}%`
+        }
+      }
+    } else {
+      const msg: Record<string, string> = {
+        loading: 'Reading plan limits…',
+        cli_not_found: "Plan limits come from Orca's command-line tool (orca), which Pixel Base could not find on this computer.",
+        cli_failed: "Orca's command-line tool did not answer, so plan limits are not available right now.",
+        unreadable: "Orca's command-line tool gave an answer Pixel Base could not read.",
+        error: 'Could not read plan limits right now.'
+      }
+      html(body, 'p', 'note', msg[limits.state === 'loading' || limits.state === 'error' ? limits.state : limits.reason] ?? msg.error)
+    }
+
+    // --- tokens used on this computer (not a quota) ---
+    html(body, 'div', 'sub', 'TOKENS USED ON THIS COMPUTER')
     if (!ok) {
       const msg: Record<Exclude<UsageState, 'ok' | 'demo'>, string> = {
         loading: 'Reading token history…',
@@ -181,11 +244,10 @@ export class Docks {
       return
     }
 
-    if (state === 'demo') html(body, 'p', 'tag', 'DEMO · simulated numbers')
     const totals = html(body, 'div', 'totals')
     for (const [label, value] of [
-      ['TODAY', data.today],
-      ['LAST 7 DAYS', data.week]
+      ['USED TODAY', data.today],
+      ['USED · 7 DAYS', data.week]
     ] as const) {
       const cell = html(totals, 'div', 'total')
       html(cell, 'span', 'lbl', label)
@@ -209,7 +271,7 @@ export class Docks {
       body,
       'p',
       'note',
-      `${foot}${data.sessions} session${data.sessions === 1 ? '' : 's'}, counted in the period they were last active. Orca does not share plan limits, so no percentage left or reset time is shown.`
+      `${foot}${data.sessions} session${data.sessions === 1 ? '' : 's'}, counted in the period they were last active. This is a count of tokens, not a share of your plan.`
     )
   }
 

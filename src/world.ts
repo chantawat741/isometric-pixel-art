@@ -82,6 +82,17 @@ export class World {
     }
   }
 
+  /**
+   * Where the message above a character's head is anchored, in world pixels: just above the icon
+   * bubble when it has one, else just above the head.
+   */
+  noteAnchor(ch: Character): { x: number; y: number } {
+    const f = this.feet(ch)
+    const top = f.y - (ch.pose === 'sit' ? 24 : 26) - this.lift(ch)
+    const bubble = bubbleFor(ch.mood) ?? (ch.info.details && ch.age < 6 ? 'new' : null)
+    return { x: f.x, y: top - (bubble ? 18 : 3) }
+  }
+
   private lift(ch: Character): number {
     if (ch.info.status !== 'celebrating' || ch.seated || ch.mode === 'walking') return 0
     return Math.round(Math.abs(Math.sin(ch.t * 7)) * 5)
