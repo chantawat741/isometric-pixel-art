@@ -6,11 +6,11 @@
   "description": "An isometric pixel-art virtual office for your AI agents. Every agent running in Orca becomes a little office worker: it sits at a desk while it works, raises a ? when it waits for you, shouts ! when it is blocked and wanders to the lounge when it is idle. Click a character to see its profile, focus its terminal or open its workspace.",
   "icon": "assets/icon.png",
   "author": {
-    "name": "chantawat741",
-    "url": "https://github.com/chantawat741"
+    "name": "chantawatthanyaphattharin",
+    "url": "https://github.com/chantawatthanyaphattharin"
   },
-  "repository": "https://github.com/chantawat741/isometric-pixel-art",
-  "homepage": "https://github.com/chantawat741/isometric-pixel-art#readme",
+  "repository": "https://github.com/chantawatthanyaphattharin/pixel-base",
+  "homepage": "https://github.com/chantawatthanyaphattharin/pixel-base#readme",
   "license": "MIT",
   "cover": {
     "path": "docs/office.png",

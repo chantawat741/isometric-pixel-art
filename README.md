@@ -26,7 +26,7 @@
 ## Install
 
 ```sh
-orca plugin install chantawat741/isometric-pixel-art
+orca plugin install chantawatthanyaphattharin/pixel-base
 ```
 
 Orca lists exactly what the plugin is allowed to do and asks you to approve it with a fingerprint before anything runs. Read the next section first.
@@ -137,7 +137,7 @@ src/
   rooms.ts     room, desk and hang-out layout
 ```
 
-Orca names a plugin's publisher after the GitHub owner of the repository it is installed from, so this plugin installs as `chantawat741.pixel-base`. See the [Orca plugin authoring guide](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-authoring.md).
+Orca names a plugin's publisher after the GitHub owner of the repository it is installed from, so this plugin installs as `chantawatthanyaphattharin.pixel-base`. (The GitHub account used to be called `chantawat741` and the repository `isometric-pixel-art`; releases up to 0.2.1 were published under those names and installed as `chantawat741.pixel-base`. Both old addresses redirect to this repository.) See the [Orca plugin authoring guide](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-authoring.md).
 
 ## License
 
