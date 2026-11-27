@@ -4,19 +4,20 @@
 
 ![The Pixel Base office](docs/office.png)
 
-*Demo mode (simulated agents). Inside Orca the characters are your real agents.*
+*Demo mode (simulated agents and simulated usage numbers). Inside Orca the characters and the numbers are your real ones.*
 
 ## What you get
 
 - **An isometric office** with five rooms (Dev Room, Meeting, Server, Lounge, Pantry), zoom, pan and fit-to-view.
 - **Your real agents.** Every agent Orca reports, from every workspace (bot homes such as a bot's folder included), is a character named after its workspace.
 - **Status you can read at a glance** (see the table below).
+- **Three foldable docks** around the office: **Agents** (every agent with its kind, state and task, plus your workspaces; click one to show it), **Usage** (tokens used today and over the last 7 days, per agent kind) and **Activity** (the state changes Orca reported). In a narrow sidebar they start folded to a one-line header that still shows a count.
 - **A profile card** when you click a character: Orca's own state and how long it has lasted, the task, a choice of 14 looks (suit, hoodie, lab coat, sweater, safety vest; the look is only a costume, it says nothing about the agent), and two buttons: **Focus terminal** and **Open workspace**.
 - **No AI calls and no data collection.** Pixel Base only mirrors what Orca already knows.
 
 ![Profile card](docs/profile-card.png)
 
-*Selecting a character shows its profile. The Focus terminal and Open workspace buttons appear for real agents only.*
+*Selecting a character, or its row in Agents, shows its profile. The Focus terminal and Open workspace buttons appear for real agents only.*
 
 ## Requirements
 
@@ -38,9 +39,10 @@ Pixel Base runs a small worker so it can focus terminals, which Orca only lets a
 | --- | --- | --- |
 | `workspace:read` | Know which workspaces exist | Reads workspace names and branch names. |
 | `agent:read` | Show your agents | Reads each agent's state, kind, title, task and terminal id, and listens for status changes. |
-| `workspace:write` | The two buttons on the profile card | Calls `terminal.focus` (show an agent's terminal) and `workspace.open` (show a workspace). Nothing else. |
+| `workspace:write` | The buttons on the profile card and the workspace list | Calls `terminal.focus` (show an agent's terminal) and `workspace.open` (show a workspace). Nothing else. |
+| `history:read` | The Usage dock | Calls `agent.listSessions` and adds up each session's token count. Orca's answer also contains each session's title, which is often the start of your first message; the worker throws titles, workspaces and branches away and sends the panel only totals per agent kind. |
 
-The worker ([`src/worker.ts`](src/worker.ts)) contains three handlers: list workspaces, focus a terminal and open a workspace. It never types into a terminal, never starts, stops or resumes an agent, and never changes a workspace. `workspace:write` allows more than that (for example renaming a workspace) but this plugin does not use it. The code is short on purpose so you can read all of it.
+The worker ([`src/worker.ts`](src/worker.ts)) contains four handlers: list workspaces, add up token usage, focus a terminal and open a workspace. It never types into a terminal, never starts, stops or resumes an agent, and never changes a workspace. `workspace:write` allows more than that (for example renaming a workspace) but this plugin does not use it. Nothing is sent anywhere: the panel has no network access and the worker makes no requests. The code is short on purpose so you can read all of it.
 
 ## What the characters show
 
@@ -60,9 +62,17 @@ Only working, waiting, blocked and done come from Orca. The light bulb, celebrat
 ## Using it
 
 - Open the **Pixel Base** panel in Orca's right sidebar. Drag to pan, scroll or use `+` / `-` to zoom, `0` or **FIT** to fit the office, **1:1** for actual size.
-- Click a character to open its profile. `Esc` closes it.
+- Click a character, or its row in **Agents**, to open its profile. `Esc` closes it. Click a dock's header to fold or unfold it (Pixel Base remembers your choice when the panel allows it). **FIT** and `0` re-centre the office between the open docks.
 - **DEMO** shows six simulated agents. It is on automatically when the panel is opened outside Orca, and off inside Orca.
 - The status line (bottom left) says what is happening: `Live · 2 workspaces · 3 agents`, or what went wrong, for example `Can't read agents · capability_denied`.
+
+## Token usage: what is and is not shown
+
+The Usage dock shows **tokens used**, from Orca's Agent Session History: today (since local midnight, plus any session still running) and the last 7 days, for the 200 most recent sessions Orca returns. A session's whole token count is counted in the period of its last activity, so a long session that ran across midnight lands entirely in the day it last moved. If Orca returns more than 200 sessions inside the week, the dock says the numbers are partial.
+
+It does **not** show how much of your plan is left, the 5-hour or weekly percentage, a credit balance or a reset time. Orca does not give plugins that information, and Pixel Base will not guess it or read your login to fetch it. If a later Orca adds it to the plugin API, it can be added here.
+
+If the dock says it needs `history:read`, approve the permission in Orca and reload the plugin (plugins that were installed before this version are asked again when they update).
 
 ## Limits
 
@@ -92,8 +102,10 @@ src/
   scene.ts     the isometric office and its furniture sprites
   character.ts pixel characters, expressions and bubbles
   sim.ts       agent behaviour (sitting, walking, idling)   nav.ts   path finding
-  feed.ts      reads agents from Orca (agents.list + events)
-  worker.ts    the plugin worker (list workspaces, focus terminal, open workspace)
+  feed.ts      reads agents from Orca (agents.list + events) and logs state changes
+  docks.ts     the Agents, Usage and Activity docks
+  usage.ts     token usage types and formatting
+  worker.ts    the plugin worker (list workspaces, token usage, focus terminal, open workspace)
   rooms.ts     room, desk and hang-out layout
 ```
 

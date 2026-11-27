@@ -3,7 +3,10 @@
 
 import { DESKS } from './rooms'
 import { rng } from './gfx'
+import { STATUS_COLOR } from './character'
 import type { VisualStatus } from './character'
+import { pushActivity } from './feed'
+import type { ActivityItem } from './feed'
 import type { Sim } from './sim'
 
 const NAMES = ['ALEX', 'BEA', 'CODY', 'DANA', 'ECHO', 'FINN']
@@ -29,11 +32,27 @@ interface Runner {
   left: number
 }
 
+/** What a simulated agent "says" when it enters a status (celebrating is just the tail of completed). */
+const DEMO_TEXT: Partial<Record<VisualStatus, string>> = {
+  working: 'is working on a task',
+  thinking: 'is thinking…',
+  blocked: 'is blocked',
+  completed: 'finished a task',
+  idle: 'is taking a break'
+}
+
 export class DemoDirector {
   private runners: Runner[] = []
   private readonly rand = rng(42)
+  /** Simulated activity, newest first (cleared with the simulation). */
+  readonly activity: ActivityItem[] = []
 
   constructor(private readonly sim: Sim) {}
+
+  private note(name: string, status: VisualStatus): void {
+    const text = DEMO_TEXT[status]
+    if (text) pushActivity(this.activity, { t: Date.now(), label: name, text, color: STATUS_COLOR[status] })
+  }
 
   get running(): boolean {
     return this.runners.length > 0
@@ -51,12 +70,14 @@ export class DemoDirector {
       const id = `demo-${i + 1}`
       this.sim.upsert({ id, name: NAMES[i], status: CYCLE[step][0], deskId: DESKS[i].id })
       this.runners.push({ id, step, left: this.duration(step) * (0.4 + this.rand() * 0.6) })
+      this.note(NAMES[i], CYCLE[step][0])
     }
   }
 
   stop(): void {
     this.sim.clear()
     this.runners = []
+    this.activity.length = 0
   }
 
   update(dt: number): void {
@@ -66,6 +87,7 @@ export class DemoDirector {
       r.step = (r.step + 1) % CYCLE.length
       r.left = this.duration(r.step)
       this.sim.setStatus(r.id, CYCLE[r.step][0])
+      this.note(this.sim.chars.get(r.id)?.info.name ?? r.id, CYCLE[r.step][0])
     }
   }
 

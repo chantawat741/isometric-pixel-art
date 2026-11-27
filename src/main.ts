@@ -3,8 +3,12 @@
 
 import { bubbleFor, drawBubble, drawCharacter, LOOKS, STATUS_COLOR } from './character'
 import { DemoDirector } from './demo'
+import { Docks } from './docks'
+import type { AgentRow, WorkspaceRow } from './docks'
 import { AgentFeed } from './feed'
 import type { HostLike } from './feed'
+import { DEMO_USAGE, loadUsage } from './usage'
+import type { UsageData, UsageState } from './usage'
 import { NavGrid } from './nav'
 import { DESKS, HANGOUTS, roomAt } from './rooms'
 import { buildOffice } from './scene'
@@ -91,10 +95,12 @@ function loop(now: number): void {
     sim.update(dt)
   }
   if (dirty || (active && now - lastCompose >= FRAME_MS)) {
+    const forced = dirty
     dirty = false
     lastCompose = now
     world.compose()
     refreshCard()
+    refreshDocks(forced)
     draw()
   }
   if (active) rafId = requestAnimationFrame(loop)
@@ -112,11 +118,18 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) kick()
 })
 
+/** True until the user pans or zooms: then resizing and folding docks re-fit the office. */
+let autoFit = true
+let docksReady = false
+
 function resize(): void {
   const rect = stage.getBoundingClientRect()
+  // A hidden or not yet laid out panel has no size: wait for a real one instead of fitting to nothing.
+  if (rect.width < 8 || rect.height < 8) return
   const first = view.vw === 1 && view.vh === 1
   view.resize(rect.width, rect.height)
   if (first) view.fit()
+  else if (autoFit && docksReady) applyInsets()
   requestDraw()
 }
 new ResizeObserver(resize).observe(stage)
@@ -137,6 +150,7 @@ canvas.addEventListener('pointermove', (e) => {
     canvas.classList.add('drag')
   }
   if (!drag.moved) return
+  autoFit = false
   view.panBy(e.clientX - drag.x, e.clientY - drag.y)
   drag.x = e.clientX
   drag.y = e.clientY
@@ -163,14 +177,21 @@ canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault()
+    autoFit = false
     const rect = canvas.getBoundingClientRect()
     view.zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX - rect.left, e.clientY - rect.top)
     requestDraw()
   },
   { passive: false }
 )
+/** Fit the office between the docks and keep it fitted while docks fold and the panel resizes. */
+function fitView(): void {
+  autoFit = true
+  if (docksReady) applyInsets()
+  else view.fit()
+}
 canvas.addEventListener('dblclick', () => {
-  view.fit()
+  fitView()
   requestDraw()
 })
 
@@ -180,15 +201,28 @@ function bind(id: string, action: () => void): void {
     requestDraw()
   })
 }
-bind('zin', () => view.step(1))
-bind('zout', () => view.step(-1))
-bind('fit', () => view.fit())
-bind('one', () => view.actualSize())
+bind('zin', () => {
+  autoFit = false
+  view.step(1)
+})
+bind('zout', () => {
+  autoFit = false
+  view.step(-1)
+})
+bind('fit', fitView)
+bind('one', () => {
+  autoFit = false
+  view.actualSize()
+})
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === '+' || e.key === '=') view.step(1)
-  else if (e.key === '-') view.step(-1)
-  else if (e.key === '0') view.fit()
+  if (e.key === '+' || e.key === '=') {
+    autoFit = false
+    view.step(1)
+  } else if (e.key === '-') {
+    autoFit = false
+    view.step(-1)
+  } else if (e.key === '0') fitView()
   else if (e.key === 'Escape') select(null)
   else return
   requestDraw()
@@ -385,6 +419,114 @@ let feed: AgentFeed | null = null
 /** Test hook: lets a debug session fast-forward the clock used for live status timing. */
 let clockOffset = 0
 
+// --- docks: AGENTS, USAGE, ACTIVITY ------------------------------------------------------------
+
+let usage: UsageData | null = null
+let usageState: UsageState = 'loading'
+let usageBusy = false
+let usageTimer: ReturnType<typeof setInterval> | undefined
+
+const docks = new Docks(
+  {
+    selectAgent: (id) => select(id),
+    openWorkspace: (w) => void openWorkspaceRow(w),
+    toggled: (name, open) => {
+      if (name === 'usage' && open) void refreshUsage()
+      applyInsets()
+      kick()
+    }
+  },
+  stage.getBoundingClientRect().width
+)
+
+/** While the camera is still "fitted", keep the office centred in the strip the docks leave free. */
+function applyInsets(): void {
+  const wide = view.vw >= 860 // in a narrow sidebar the docks simply float over the office
+  view.insetL = wide && docks.isOpen('agents') ? 240 : 0
+  view.insetR = wide && docks.isOpen('usage') ? 240 : 0
+  if (autoFit) view.fit()
+  requestDraw()
+}
+docksReady = true
+applyInsets()
+
+async function openWorkspaceRow(w: WorkspaceRow): Promise<void> {
+  try {
+    await callWorker('pixel.openWorkspace', { workspaceId: w.id, name: w.name, branch: w.branch ?? '' })
+    toast(`Showing ${w.name} in Orca.`)
+  } catch (error) {
+    toast(explain(error), true)
+  }
+}
+
+/** Tokens used, read through the plugin worker (demo mode shows labelled, simulated numbers). */
+async function refreshUsage(): Promise<void> {
+  if (demoOn) {
+    usage = DEMO_USAGE
+    usageState = 'demo'
+    return refreshDocks(true)
+  }
+  if (!host) {
+    usage = null
+    usageState = 'unavailable'
+    return refreshDocks(true)
+  }
+  if (usageBusy) return
+  usageBusy = true
+  try {
+    usage = await loadUsage((name, input) => callWorker(name, input))
+    usageState = 'ok'
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (code === 'capability_denied' || code === 'consent_required') usageState = 'denied'
+    else if (code === 'unknown_method' || code === 'not_permitted') usageState = 'unavailable'
+    else if (!usage) usageState = 'error' // a failed refresh keeps the numbers already shown
+    if (usageState !== 'ok') usage = null
+  } finally {
+    usageBusy = false
+    refreshDocks(true)
+  }
+}
+
+let lastDocks = 0
+function refreshDocks(force = false): void {
+  const t = performance.now()
+  if (!force && t - lastDocks < 400) return
+  lastDocks = t
+  const live = !demoOn && !!feed?.live
+  const views = !demoOn && feed ? feed.views(Date.now() + clockOffset) : []
+  const rows: AgentRow[] = demoOn
+    ? [...sim.chars.values()].map((ch) => ({
+        id: ch.info.id,
+        name: ch.info.name,
+        kind: 'demo',
+        status: ch.info.status,
+        statusLabel: STATUS_LABEL[ch.info.status],
+        task: '',
+        lookId: ch.lookId,
+        selectable: true,
+        deskless: false
+      }))
+    : views.map((v) => ({
+        id: v.key,
+        name: v.name,
+        kind: v.kind,
+        status: v.status,
+        statusLabel: STATUS_LABEL[v.status],
+        // Orca's terminal title is often just the agent's own name: don't repeat the badge.
+        task: v.task || (v.title.toLowerCase() === v.kind.toLowerCase() ? '' : v.title),
+        lookId: sim.chars.get(v.key)?.lookId ?? 0,
+        selectable: sim.chars.has(v.key),
+        deskless: v.deskIndex < 0
+      }))
+  const workspaces: WorkspaceRow[] | null = live
+    ? (feed?.workspaces ?? []).map((w) => ({ id: w.id, name: w.name, branch: w.branch, agents: views.filter((v) => v.workspaceId === w.id).length }))
+    : null
+  docks.renderAgents(rows, world.selectedId, workspaces, live)
+  docks.renderUsage(usage, usageState)
+  docks.renderActivity(demoOn ? demo.activity : (feed?.activity ?? []), !demoOn)
+}
+
 /** Mirror the feed into the simulation: add/update agents that have a desk, drop the rest. */
 function syncLive(): void {
   if (!feed) return
@@ -418,7 +560,18 @@ function syncLive(): void {
   updateStatus()
 }
 
+/** A short message in the status chip (e.g. after opening a workspace); the normal status returns after. */
+let toastUntil = 0
+function toast(text: string, error = false): void {
+  toastUntil = Date.now() + 3500
+  statusText.textContent = text
+  statusText.title = text
+  statusDot.style.background = error ? '#ff6b6b' : '#6df08a'
+  setTimeout(updateStatus, 3600)
+}
+
 function updateStatus(): void {
+  if (Date.now() < toastUntil) return
   let text: string
   let color = '#6b7388'
   if (demoOn) {
@@ -460,6 +613,11 @@ async function startLive(h: HostLike): Promise<void> {
   }
   await f.start()
   updateStatus()
+  void refreshUsage()
+  clearInterval(usageTimer)
+  usageTimer = setInterval(() => {
+    if (!document.hidden && !demoOn) void refreshUsage()
+  }, 60000)
 }
 
 function setDemo(on: boolean): void {
@@ -469,6 +627,11 @@ function setDemo(on: boolean): void {
   card.hidden = true
   if (on) demo.start()
   else syncLive()
+  if (!on) {
+    usage = null
+    usageState = 'loading'
+  }
+  void refreshUsage()
   demoBtn.setAttribute('aria-pressed', String(on))
   demoBtn.classList.toggle('on', on)
   updateStatus()
@@ -516,6 +679,8 @@ if (location.search.includes('debug')) {
     now: (): number => Date.now() + clockOffset,
     startLive,
     feed: () => feed,
+    docks,
+    refreshUsage,
     select
   }
 }

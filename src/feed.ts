@@ -6,9 +6,43 @@
 //    tell us *when* to look again (and carry the outcome of a finished run).
 //  - No AI/API calls of any kind: this is a read-only mirror of Orca's own agent runtime.
 
+import { STATUS_COLOR } from './character'
 import type { VisualStatus } from './character'
 
 export type OrcaState = 'working' | 'blocked' | 'waiting' | 'done'
+
+/** One line of the ACTIVITY dock: a state change Orca reported (or, in demo mode, a simulated one). */
+export interface ActivityItem {
+  /** Epoch milliseconds: for real agents the time Orca says the state began. */
+  t: number
+  label: string
+  text: string
+  color: string
+}
+
+export const ACTIVITY_MAX = 30
+
+/** Newest first, capped. */
+export function pushActivity(list: ActivityItem[], item: ActivityItem): void {
+  list.push(item)
+  list.sort((a, b) => b.t - a.t)
+  if (list.length > ACTIVITY_MAX) list.length = ACTIVITY_MAX
+}
+
+function activityFor(raw: OrcaState, task: string, outcome: string | undefined): { text: string; status: VisualStatus } {
+  switch (raw) {
+    case 'working':
+      return { text: task ? `is working on: ${task}` : 'started working', status: 'working' }
+    case 'waiting':
+      return { text: 'is waiting for you', status: 'waiting' }
+    case 'blocked':
+      return { text: 'is blocked', status: 'blocked' }
+    case 'done':
+      return outcome === 'failure'
+        ? { text: `failed${task ? `: ${task}` : ''}`, status: 'failed' }
+        : { text: `finished${task ? `: ${task}` : ''}`, status: 'completed' }
+  }
+}
 
 export interface RawAgent {
   terminalId: string | null
@@ -110,6 +144,8 @@ export class AgentFeed {
   /** Called whenever the agent list, a state or the workspace label changed. */
   onChange: () => void = () => {}
   workspaceLabel: string | null = null
+  /** State changes Orca reported, newest first. */
+  readonly activity: ActivityItem[] = []
   /** The focused workspace's id, name and branch (for "Open workspace"). */
   context: WorkspaceContext | null = null
   /** The last failure to read agents (cleared by the next successful read). */
@@ -237,7 +273,9 @@ export class AgentFeed {
       if (seen.has(key)) continue
       seen.add(key)
       let rec = this.recs.get(key)
+      let created = false
       if (!rec) {
+        created = true
         rec = {
           key,
           terminalId: null,
@@ -253,6 +291,7 @@ export class AgentFeed {
         }
         this.recs.set(key, rec)
       }
+      const changed = !created && rec.raw !== a.state
       rec.workspaceId = ws?.id ?? null
       rec.workspaceName = ws?.name ?? ''
       rec.terminalId = a.terminalId
@@ -261,6 +300,11 @@ export class AgentFeed {
       rec.task = a.task?.title ?? ''
       rec.raw = a.state
       rec.since = a.stateStartedAt
+      if (created || changed) {
+        const what = activityFor(a.state, rec.task, this.outcomes.get(key))
+        const label = (rec.workspaceName || rec.kind || 'agent').toUpperCase().replace(/[^A-Z0-9 ]/g, '').trim().slice(0, 9) || 'AGENT'
+        pushActivity(this.activity, { t: a.stateStartedAt, label, text: what.text, color: STATUS_COLOR[what.status] })
+      }
       if (a.state !== 'done') this.outcomes.delete(key)
     }
     for (const key of [...this.recs.keys()]) {

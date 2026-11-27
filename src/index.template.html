@@ -6,6 +6,7 @@
     <title>Pixel Base</title>
     <style>
       :root {
+        color-scheme: dark;
         --pb-bg: #141821;
         --pb-panel: rgba(13, 16, 24, 0.82);
         --pb-line: rgba(255, 255, 255, 0.14);
@@ -109,9 +110,329 @@
         color: var(--pb-accent);
         border-color: rgba(240, 179, 90, 0.45);
       }
-      #card {
+      /* --- docks: AGENTS (left), USAGE (right), ACTIVITY (bottom left), all foldable --- */
+      .dock {
+        position: absolute;
+        display: flex;
+        flex-direction: column;
+        width: 224px;
+        max-width: calc(100% - 16px);
+        background: var(--pb-panel);
+        border: 1px solid var(--pb-line);
+        border-radius: 8px;
+        backdrop-filter: blur(4px);
+        overflow: hidden;
+      }
+      #dock-agents {
+        top: 44px;
+        left: 8px;
+        max-height: calc(60% - 44px);
+      }
+      #dock-usage {
         top: 8px;
         right: 8px;
+        max-height: calc(100% - 60px);
+      }
+      #dock-activity {
+        left: 8px;
+        bottom: 44px;
+        width: 280px;
+        max-height: 30%;
+      }
+      .dock-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: none;
+        width: 100%;
+        padding: 7px 10px;
+        color: var(--pb-fg);
+        background: transparent;
+        border: 0;
+        font: inherit;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-align: left;
+        cursor: pointer;
+      }
+      .dock-head:hover {
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .dock-head:focus-visible {
+        outline: 2px solid var(--pb-accent);
+        outline-offset: -2px;
+      }
+      .dock-count {
+        margin-left: auto;
+        color: var(--pb-dim);
+        font-weight: 400;
+        font-size: 11px;
+        letter-spacing: 0;
+        white-space: nowrap;
+      }
+      .chev {
+        color: var(--pb-dim);
+        font-size: 10px;
+        transition: transform 0.12s;
+      }
+      .dock.collapsed .chev {
+        transform: rotate(-90deg);
+      }
+      .dock-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 2px 6px 8px;
+        border-top: 1px solid var(--pb-line);
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+      }
+      .dock.collapsed .dock-body {
+        display: none;
+      }
+      .dock ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .dock .empty {
+        padding: 8px 4px;
+        color: var(--pb-dim);
+        font-size: 11px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        margin-top: 4px;
+        padding: 4px;
+        color: var(--pb-fg);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid transparent;
+        border-radius: 6px;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .row:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .row:disabled {
+        cursor: default;
+        opacity: 0.6;
+      }
+      .row.sel {
+        border-color: var(--pb-accent);
+      }
+      .row:focus-visible,
+      .ws:focus-visible {
+        outline: 2px solid var(--pb-accent);
+        outline-offset: 1px;
+      }
+      .row .face {
+        flex: none;
+        width: 40px;
+        height: 56px;
+        image-rendering: pixelated;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+      }
+      .row .info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .row .top {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .row .nm {
+        font-size: 12px;
+        letter-spacing: 0.06em;
+      }
+      .badge {
+        padding: 0 6px;
+        color: var(--pb-dim);
+        border: 1px solid var(--pb-line);
+        border-radius: 8px;
+        font-size: 10px;
+        line-height: 14px;
+      }
+      .row .st,
+      .act .al::before {
+        color: var(--pb-dim);
+        font-size: 11px;
+      }
+      .row .st::before,
+      .act .al::before {
+        content: '';
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        margin-right: 6px;
+        border-radius: 50%;
+        background: var(--dot, #9aa3b8);
+      }
+      .row .tk {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        color: var(--pb-dim);
+        font-size: 10px;
+      }
+      .sub {
+        margin: 10px 4px 2px;
+        color: var(--pb-dim);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+      }
+      #wsBlock[hidden] {
+        display: none;
+      }
+      .ws {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+        padding: 4px;
+        color: var(--pb-fg);
+        background: transparent;
+        border: 0;
+        border-radius: 4px;
+        font: inherit;
+        font-size: 11px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .ws:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .ws .wn {
+        flex: none;
+        max-width: 90px;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-weight: 600;
+      }
+      .ws .wb {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        color: var(--pb-dim);
+        font-size: 10px;
+      }
+      .ws .wc {
+        margin-left: auto;
+        min-width: 14px;
+        color: var(--pb-accent);
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+      .totals {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin: 8px 2px 4px;
+      }
+      .total {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .total .lbl {
+        color: var(--pb-dim);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+      }
+      .total .big {
+        color: var(--pb-accent);
+        font-size: 22px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.15;
+      }
+      .total .unit {
+        color: var(--pb-dim);
+        font-size: 10px;
+      }
+      .kind {
+        margin: 8px 2px 0;
+      }
+      .kind .kh {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 2px 6px;
+        font-size: 11px;
+      }
+      .kind .kn {
+        letter-spacing: 0.06em;
+      }
+      .kind .run {
+        color: #6df08a;
+        font-size: 10px;
+      }
+      .kind .kv {
+        margin-left: auto;
+        color: var(--pb-dim);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+      .bar {
+        height: 4px;
+        margin-top: 3px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        background: var(--pb-accent);
+      }
+      .dock .note,
+      .dock .tag {
+        margin: 8px 2px 0;
+        color: var(--pb-dim);
+        font-size: 10px;
+        line-height: 1.35;
+      }
+      .dock .tag {
+        color: var(--pb-accent);
+        letter-spacing: 0.06em;
+      }
+      .act {
+        display: flex;
+        gap: 8px;
+        padding: 3px 2px;
+        font-size: 11px;
+      }
+      .act .at {
+        flex: none;
+        color: var(--pb-dim);
+        font-variant-numeric: tabular-nums;
+      }
+      .act .al {
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .act .al::before {
+        color: inherit;
+      }
+      #card {
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        max-width: calc(100% - 16px);
         align-items: flex-start;
         gap: 10px;
         padding: 8px 10px;
@@ -286,6 +607,30 @@
         </div>
         <button id="cclose" class="x" aria-label="Close profile">&times;</button>
       </div>
+      <section id="dock-agents" class="dock" aria-label="Agents">
+        <button class="dock-head" aria-expanded="true" aria-controls="agentBody">
+          <span>AGENTS</span><span id="count-agents" class="dock-count"></span><span class="chev" aria-hidden="true">&#9662;</span>
+        </button>
+        <div id="agentBody" class="dock-body">
+          <ul id="agentList"></ul>
+          <div id="wsBlock" hidden>
+            <div class="sub">WORKSPACES</div>
+            <ul id="wsList"></ul>
+          </div>
+        </div>
+      </section>
+      <section id="dock-usage" class="dock" aria-label="Token usage">
+        <button class="dock-head" aria-expanded="true" aria-controls="usageBody">
+          <span>USAGE</span><span id="count-usage" class="dock-count"></span><span class="chev" aria-hidden="true">&#9662;</span>
+        </button>
+        <div id="usageBody" class="dock-body"></div>
+      </section>
+      <section id="dock-activity" class="dock" aria-label="Activity">
+        <button class="dock-head" aria-expanded="true" aria-controls="actBody">
+          <span>ACTIVITY</span><span id="count-activity" class="dock-count"></span><span class="chev" aria-hidden="true">&#9662;</span>
+        </button>
+        <div id="actBody" class="dock-body"><ul id="actList"></ul></div>
+      </section>
       <div id="tools" class="chip" role="toolbar" aria-label="Camera">
         <button id="demo" title="Show simulated agents" aria-pressed="true">DEMO</button>
         <span class="sep"></span>

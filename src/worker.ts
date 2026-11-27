@@ -6,7 +6,8 @@
 //
 // Safety rules (from the Pixel Base plan):
 //  - Every action goes through Orca's host API; nothing clicks, types or sends terminal input.
-//  - Only the two view-only actions below exist. Nothing here starts, stops or writes to an agent.
+//  - Only the two view-only actions below plus two read-only lists (workspaces, token usage) exist.
+//    Nothing here starts, stops or writes to an agent.
 //  - Inputs are validated; failures are thrown with a host error code so the panel can explain them.
 
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
@@ -48,6 +49,56 @@ export default function activate(orca: WorkerApi): void {
     }
     return {
       workspaces: list.workspaces.slice(0, 40).map((w) => ({ id: w.id, name: w.name, kind: w.kind, branch: w.branch, project: w.project ?? null }))
+    }
+  })
+
+  // Tokens used, from Orca's Agent Session History (`agent.listSessions`, worker-only, needs
+  // history:read). Only sums leave this worker: no titles, no workspaces, no paths. A session's
+  // whole token count is counted in the period of its last activity, and Orca does not expose
+  // plan limits, remaining quota or reset times, so none of those are reported.
+  orca.panels.handle('pixel.usage', async () => {
+    type Session = { agent: string | null; updatedAt: number; totalTokens: number; running: boolean }
+    // 200 is the most Orca returns per call (a bigger limit is refused as invalid_params).
+    const res = (await orca.host.call('agent.listSessions', { limit: 200 })) as { sessions: Session[]; truncated: boolean }
+    const now = Date.now()
+    const midnight = new Date(now)
+    midnight.setHours(0, 0, 0, 0)
+    const startOfToday = midnight.getTime()
+    const weekAgo = now - 7 * 24 * 3600 * 1000
+    const kinds = new Map<string, { agent: string; today: number; week: number; sessions: number; running: number }>()
+    let today = 0
+    let week = 0
+    let sessions = 0
+    let oldest = now
+    for (const s of res.sessions) {
+      // Orca reports epoch milliseconds; tolerate seconds.
+      const at = s.updatedAt < 1e11 ? s.updatedAt * 1000 : s.updatedAt
+      oldest = Math.min(oldest, at)
+      const inToday = s.running || at >= startOfToday
+      const inWeek = inToday || at >= weekAgo
+      if (!inWeek) continue
+      const tokens = Number.isFinite(s.totalTokens) && s.totalTokens > 0 ? s.totalTokens : 0
+      const name = (s.agent ?? '').trim().toLowerCase() || 'agent'
+      const k = kinds.get(name) ?? { agent: name, today: 0, week: 0, sessions: 0, running: 0 }
+      k.week += tokens
+      k.sessions += 1
+      week += tokens
+      sessions += 1
+      if (inToday) {
+        k.today += tokens
+        today += tokens
+      }
+      if (s.running) k.running += 1
+      kinds.set(name, k)
+    }
+    return {
+      today,
+      week,
+      sessions,
+      kinds: [...kinds.values()].sort((a, b) => b.week - a.week).slice(0, 8),
+      // Sessions come newest first: if the list was cut inside the 7-day window the sums are incomplete.
+      partial: res.truncated && oldest >= weekAgo,
+      at: now
     }
   })
 

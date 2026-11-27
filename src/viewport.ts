@@ -27,11 +27,23 @@ export class Viewport {
     this.clampCenter()
   }
 
-  /** Largest whole-number zoom that fits (crisp pixels); below 1x the exact fractional fit. */
+  /** Screen pixels at the left / right edge covered by docks: `fit` centres the office between them. */
+  insetL = 0
+  insetR = 0
+
+  /**
+   * Largest zoom that fits: whole numbers (crisp pixels), plus a half step when the free strip is too
+   * narrow for the next whole number (the docks take space); below 1x the exact fractional fit.
+   */
   fit(): void {
-    const z = Math.min(this.vw / this.worldW, this.vh / this.worldH) * 0.97
-    this.zoom = clamp(z >= 1 ? Math.floor(z) : z, MIN_ZOOM, MAX_ZOOM)
-    this.cx = this.worldW / 2
+    const free = Math.max(1, this.vw - this.insetL - this.insetR)
+    const z = Math.min(free / this.worldW, this.vh / this.worldH) * 0.97
+    const whole = Math.floor(z)
+    // A quarter of a step is enough for the half step: a corner may slip a little under a dock,
+    // which beats leaving the office small, and the docks fold away.
+    this.zoom = clamp(z < 1 ? z : z - whole >= 0.25 ? whole + 0.5 : whole, MIN_ZOOM, MAX_ZOOM)
+    // The office centre should land in the middle of the free strip, not of the whole screen.
+    this.cx = this.worldW / 2 - (this.insetL - this.insetR) / 2 / this.zoom
     this.cy = this.worldH / 2
   }
 
